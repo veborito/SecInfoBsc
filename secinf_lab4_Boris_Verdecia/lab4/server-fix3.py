@@ -1,8 +1,12 @@
 import sqlite3
 
+import argon2
+import pyotp
+from argon2 import PasswordHasher
 from flask import Flask, jsonify, redirect, render_template, request, url_for
 
 app = Flask(__name__)
+ph = PasswordHasher()
 
 
 # fonction pour tester le mot de passe
@@ -64,7 +68,7 @@ def register():
             ),
             400,
         )
-
+    password = ph.hash(password)
     conn = get_db_connection()
     try:
         conn.execute(
@@ -87,20 +91,21 @@ def login():
 
     conn = get_db_connection()
     user = conn.execute(
-        "SELECT * FROM users WHERE username = ? AND password = ?", (username, password)
+        "SELECT * FROM users WHERE username = ?", (username,)
     ).fetchone()
     conn.close()
-
-    if user:
+    try:
+        ph.verify(user["password"], password)
         return jsonify({"message": "OK. Welcome user " + user["username"]}), 200
-    else:
+    except argon2.exceptions.InvalidHashError:
         return jsonify({"message": "Invalid credentials!"}), 401
 
 
 # Route pour la page d'inscription
 @app.route("/web/register")
 def register_page():
-    return render_template("register.html")
+    totp_secret = pyotp.random_base32()
+    return render_template("register_otp.html", totp_secret=totp_secret)
 
 
 # Route pour la page de connexion
