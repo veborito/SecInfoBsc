@@ -1,12 +1,14 @@
 import sqlite3
+import time
 
 import argon2
 import pyotp
 from argon2 import PasswordHasher
-from flask import Flask, jsonify, redirect, render_template, request, url_for
+from flask import Flask, flash, jsonify, redirect, render_template, request, url_for
 
 app = Flask(__name__)
 ph = PasswordHasher()
+tries = 0
 
 
 # fonction pour tester le mot de passe
@@ -39,7 +41,8 @@ def init_db():
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT NOT NULL UNIQUE,
-            password TEXT NOT NULL
+            password TEXT NOT NULL,
+            secret_totp TEXT NOT NULL
         )
     """
     )
@@ -52,6 +55,8 @@ def init_db():
 def register():
     username = request.json["username"]
     password = request.json["password"]
+    secret_totp = request.json["totp_secret"]
+    code = request.json["totp"]
 
     if len(password) < 12:
         return jsonify({"message": "Password too short (min length: 12)"}), 400
@@ -68,11 +73,14 @@ def register():
             ),
             400,
         )
+    elif secret_totp != code:
+        return jsonify({"message": "Le code ne correspond pas au secret"}), 400
     password = ph.hash(password)
     conn = get_db_connection()
     try:
         conn.execute(
-            "INSERT INTO users (username, password) VALUES (?, ?)", (username, password)
+            "INSERT INTO users (username, password, secret_totp) VALUES (?, ?, ?)",
+            (username, password, secret_totp),
         )
         conn.commit()
     except sqlite3.IntegrityError:
@@ -86,19 +94,34 @@ def register():
 # Route pour se connecter
 @app.route("/login", methods=["POST"])
 def login():
+    global tries
+    if tries == 3:
+        time.sleep(30)
+        tries = 0
+
     username = request.json["username"]
     password = request.json["password"]
+    code = request.json["totp"]
 
     conn = get_db_connection()
     user = conn.execute(
         "SELECT * FROM users WHERE username = ?", (username,)
     ).fetchone()
     conn.close()
+    if not user:
+        tries += 1
+        return jsonify({"message": "Invalid credentials!"}), 401
     try:
         ph.verify(user["password"], password)
-        return jsonify({"message": "OK. Welcome user " + user["username"]}), 200
-    except argon2.exceptions.InvalidHashError:
+    except:
+        tries += 1
         return jsonify({"message": "Invalid credentials!"}), 401
+    finally:
+        if user["secret_totp"] != code:
+            tries += 1
+            return jsonify({"message": "Invalid credentials!"}), 401
+        tries = 0
+        return jsonify({"message": "OK. Welcome user " + user["username"]}), 200
 
 
 # Route pour la page d'inscription
@@ -111,7 +134,8 @@ def register_page():
 # Route pour la page de connexion
 @app.route("/web/login")
 def login_page():
-    return render_template("login.html")
+    totp_secret = pyotp.random_base32()
+    return render_template("login_otp.html")
 
 
 # Route pour la racine
