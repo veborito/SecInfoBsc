@@ -96,7 +96,7 @@ def login():
     try:
         ph.verify(user["password"], password)
         return jsonify({"message": "OK. Welcome user " + user["username"]}), 200
-    except argon2.exceptions.InvalidHashError:
+    except:
         return jsonify({"message": "Invalid credentials!"}), 401
 
 

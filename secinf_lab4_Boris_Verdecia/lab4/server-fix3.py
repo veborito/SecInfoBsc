@@ -8,7 +8,6 @@ from flask import Flask, flash, jsonify, redirect, render_template, request, url
 
 app = Flask(__name__)
 ph = PasswordHasher()
-tries = 0
 
 
 # fonction pour tester le mot de passe
@@ -58,6 +57,8 @@ def register():
     secret_totp = request.json["totp_secret"]
     code = request.json["totp"]
 
+    totp = pyotp.TOTP(secret_totp)
+
     if len(password) < 12:
         return jsonify({"message": "Password too short (min length: 12)"}), 400
     elif not check_password(password):
@@ -73,8 +74,8 @@ def register():
             ),
             400,
         )
-    elif secret_totp != code:
-        return jsonify({"message": "Le code ne correspond pas au secret"}), 400
+    elif not totp.verify(code):
+        return jsonify({"message": "Le code ne correspond pas !"}), 400
     password = ph.hash(password)
     conn = get_db_connection()
     try:
@@ -94,11 +95,6 @@ def register():
 # Route pour se connecter
 @app.route("/login", methods=["POST"])
 def login():
-    global tries
-    if tries == 3:
-        time.sleep(30)
-        tries = 0
-
     username = request.json["username"]
     password = request.json["password"]
     code = request.json["totp"]
@@ -109,18 +105,15 @@ def login():
     ).fetchone()
     conn.close()
     if not user:
-        tries += 1
         return jsonify({"message": "Invalid credentials!"}), 401
     try:
         ph.verify(user["password"], password)
     except:
-        tries += 1
         return jsonify({"message": "Invalid credentials!"}), 401
     finally:
-        if user["secret_totp"] != code:
-            tries += 1
+        totp = pyotp.TOTP(user["secret_totp"])
+        if not totp.verify(code):
             return jsonify({"message": "Invalid credentials!"}), 401
-        tries = 0
         return jsonify({"message": "OK. Welcome user " + user["username"]}), 200
 
 
