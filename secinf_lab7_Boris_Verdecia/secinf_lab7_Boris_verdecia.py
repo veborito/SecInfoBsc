@@ -156,7 +156,7 @@ def main():
     write_to_pem(alice_private_key, alice_public_key, ALICE_PASSWORD, ALICE_PR_PATH, ALICE_PB_PATH)
     
     message_encrypted = send(message, bob_private_key, bob_public_key, alice_public_key)
-    
+    print(message_encrypted)
 	
 if __name__ == "__main__":
 	main()
